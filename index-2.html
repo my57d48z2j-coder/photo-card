@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>写真コメントカード</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: linear-gradient(165deg, #f5f0eb 0%, #e8e0d8 100%); font-family: 'Noto Sans JP', sans-serif; min-height: 100vh; }
+.container { max-width: 640px; margin: 0 auto; padding: 24px 16px 100px; }
+.title-input { border: none; border-bottom: 1px solid #c0b8ae; background: transparent; text-align: center; font-size: 22px; font-weight: 700; padding: 8px 0; width: 85%; outline: none; color: #2a2520; font-family: 'Noto Sans JP', sans-serif; display: block; margin: 0 auto 24px; }
+.add-btn { display: block; width: 100%; padding: 14px; border: 2px dashed #c0b8ae; border-radius: 12px; background: rgba(255,255,255,0.4); color: #7a7068; font-size: 17px; cursor: pointer; margin-bottom: 24px; font-family: 'Noto Sans JP', sans-serif; }
+.add-btn:hover { background: rgba(255,255,255,0.7); border-color: #8a7e74; }
+.card { background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 2px 12px rgba(42,37,32,0.08); margin-bottom: 20px; animation: fadeUp 0.35s ease-out; }
+.card-img-wrap { position: relative; }
+.card-img { width: 100%; display: block; max-height: 360px; object-fit: cover; }
+.card-controls { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; }
+.pill-btn { width: 34px; height: 34px; border-radius: 50%; border: none; background: rgba(0,0,0,0.4); color: #fff; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.pill-btn.del { background: rgba(180,60,60,0.7); }
+.caption-area { width: 100%; border: none; outline: none; resize: vertical; font-size: 17px; line-height: 1.8; color: #3a3530; font-family: 'Noto Sans JP', sans-serif; background: transparent; padding: 10px 14px 14px; }
+.empty-msg { text-align: center; color: #b0a898; font-size: 16px; margin-top: 48px; line-height: 1.8; }
+.export-btn { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 14px 36px; border-radius: 50px; border: none; background: #3a3530; color: #fff; font-size: 17px; font-weight: 500; cursor: pointer; font-family: 'Noto Sans JP', sans-serif; box-shadow: 0 4px 20px rgba(42,37,32,0.25); z-index: 10; }
+.export-btn:disabled { background: #a09888; cursor: default; }
+.overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.7); display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 48px 16px 24px; overflow: auto; }
+.overlay p { color: #fff; font-size: 17px; margin-bottom: 12px; text-align: center; }
+.overlay img { width: 90%; max-width: 540px; border-radius: 8px; }
+.overlay .close-btn { margin-top: 16px; padding: 10px 32px; border-radius: 50px; border: 1px solid rgba(255,255,255,0.5); background: transparent; color: #fff; font-size: 16px; cursor: pointer; font-family: 'Noto Sans JP', sans-serif; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+<div class="container" id="app"></div>
+<canvas id="export-canvas" style="display:none"></canvas>
+
+<script>
+const app = document.getElementById('app');
+const canvas = document.getElementById('export-canvas');
+let photos = [];
+let titleText = '';
+
+function render() {
+  app.innerHTML = '';
+
+  const titleInput = document.createElement('input');
+  titleInput.className = 'title-input';
+  titleInput.placeholder = 'タイトルを入力…';
+  titleInput.value = titleText;
+  titleInput.addEventListener('input', e => { titleText = e.target.value; });
+  app.appendChild(titleInput);
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file'; fileInput.accept = 'image/*'; fileInput.multiple = true;
+  fileInput.style.display = 'none';
+  fileInput.addEventListener('change', handleFiles);
+  app.appendChild(fileInput);
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'add-btn';
+  addBtn.textContent = '+ 写真を追加';
+  addBtn.addEventListener('click', () => fileInput.click());
+  app.appendChild(addBtn);
+
+  if (photos.length === 0) {
+    const msg = document.createElement('p');
+    msg.className = 'empty-msg';
+    msg.innerHTML = '写真を追加して、コメントを入れたら<br>1枚の画像として書き出せます';
+    app.appendChild(msg);
+  }
+
+  photos.forEach((photo, idx) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    const imgWrap = document.createElement('div');
+    imgWrap.className = 'card-img-wrap';
+    const img = document.createElement('img');
+    img.className = 'card-img'; img.src = photo.src;
+    imgWrap.appendChild(img);
+
+    const controls = document.createElement('div');
+    controls.className = 'card-controls';
+    if (idx > 0) {
+      const up = document.createElement('button'); up.className = 'pill-btn'; up.textContent = '↑';
+      up.addEventListener('click', () => { [photos[idx], photos[idx-1]] = [photos[idx-1], photos[idx]]; render(); });
+      controls.appendChild(up);
+    }
+    if (idx < photos.length - 1) {
+      const dn = document.createElement('button'); dn.className = 'pill-btn'; dn.textContent = '↓';
+      dn.addEventListener('click', () => { [photos[idx], photos[idx+1]] = [photos[idx+1], photos[idx]]; render(); });
+      controls.appendChild(dn);
+    }
+    const del = document.createElement('button'); del.className = 'pill-btn del'; del.textContent = '✕';
+    del.addEventListener('click', () => { photos.splice(idx, 1); render(); });
+    controls.appendChild(del);
+    imgWrap.appendChild(controls);
+    card.appendChild(imgWrap);
+
+    const ta = document.createElement('textarea');
+    ta.className = 'caption-area'; ta.rows = 2; ta.placeholder = 'コメントを入力…';
+    ta.value = photo.caption;
+    ta.addEventListener('input', e => { photo.caption = e.target.value; });
+    card.appendChild(ta);
+    app.appendChild(card);
+  });
+
+  if (photos.length > 0) {
+    const existing = document.getElementById('export-btn');
+    if (existing) existing.remove();
+    const btn = document.createElement('button');
+    btn.id = 'export-btn'; btn.className = 'export-btn';
+    btn.textContent = '📷 1枚の画像として保存';
+    btn.addEventListener('click', exportImage);
+    document.body.appendChild(btn);
+  } else {
+    const existing = document.getElementById('export-btn');
+    if (existing) existing.remove();
+  }
+}
+
+function handleFiles(e) {
+  const files = Array.from(e.target.files);
+  let loaded = 0;
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        photos.push({ id: Date.now() + Math.random(), src: ev.target.result, caption: '', imgEl: img });
+        loaded++;
+        if (loaded === files.length) render();
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+  e.target.value = '';
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath();
+}
+
+function roundRectTop(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h); ctx.lineTo(x,y+h);
+  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath();
+}
+
+function exportImage() {
+  if (photos.length === 0) return;
+  const W = 1080, PAD = 48, PHOTO_W = W - PAD*2, GAP = 24;
+  const CF = "44px 'Noto Sans JP', sans-serif";
+  const TF = "bold 56px 'Noto Sans JP', sans-serif";
+  const LH = 64, CP = 28, BG = '#f5f0eb', TC = '#3a3530';
+
+  const ctx = canvas.getContext('2d');
+  ctx.font = CF;
+  let totalH = PAD;
+  if (titleText.trim()) totalH += 74;
+
+  const layouts = photos.map(p => {
+    const aspect = p.imgEl.height / p.imgEl.width;
+    const cappedH = Math.min(Math.round(PHOTO_W * aspect), 1200);
+    let lines = [];
+    if (p.caption.trim()) {
+      p.caption.split('\n').forEach(raw => {
+        if (!raw) { lines.push(''); return; }
+        let line = '';
+        for (const ch of raw) {
+          if (ctx.measureText(line + ch).width > PHOTO_W - 48) { lines.push(line); line = ch; }
+          else line += ch;
+        }
+        if (line) lines.push(line);
+      });
+    }
+    const captionH = lines.length > 0 ? CP + lines.length * LH + CP/2 : 0;
+    const blockH = cappedH + captionH;
+    totalH += blockH + GAP;
+    return { ...p, cappedH, lines, captionH, blockH };
+  });
+  totalH += PAD - GAP;
+
+  canvas.width = W; canvas.height = totalH;
+  ctx.fillStyle = BG; ctx.fillRect(0, 0, W, totalH);
+  let y = PAD;
+
+  if (titleText.trim()) {
+    ctx.font = TF; ctx.fillStyle = TC; ctx.textAlign = 'center';
+    ctx.fillText(titleText, W/2, y + 46);
+    ctx.strokeStyle = '#d0c8be'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD+60, y+66); ctx.lineTo(W-PAD-60, y+66); ctx.stroke();
+    y += 74;
+  }
+  ctx.textAlign = 'left';
+
+  layouts.forEach(p => {
+    ctx.save(); ctx.shadowColor='rgba(42,37,32,0.1)'; ctx.shadowBlur=16; ctx.shadowOffsetY=4;
+    ctx.fillStyle='#fff'; roundRect(ctx,PAD,y,PHOTO_W,p.blockH,16); ctx.fill(); ctx.restore();
+    ctx.fillStyle='#fff'; roundRect(ctx,PAD,y,PHOTO_W,p.blockH,16); ctx.fill();
+
+    ctx.save(); roundRectTop(ctx,PAD,y,PHOTO_W,p.cappedH,16); ctx.clip();
+    const sa=p.imgEl.width/p.imgEl.height, da=PHOTO_W/p.cappedH;
+    let sx=0,sy=0,sw=p.imgEl.width,sh=p.imgEl.height;
+    if(sa>da){sw=p.imgEl.height*da;sx=(p.imgEl.width-sw)/2;}
+    else{sh=p.imgEl.width/da;sy=(p.imgEl.height-sh)/2;}
+    ctx.drawImage(p.imgEl,sx,sy,sw,sh,PAD,y,PHOTO_W,p.cappedH); ctx.restore();
+
+    if(p.lines.length>0){
+      ctx.font=CF; ctx.fillStyle=TC;
+      let ty=y+p.cappedH+CP+36;
+      p.lines.forEach(l=>{ctx.fillText(l,PAD+24,ty);ty+=LH;});
+    }
+    y+=p.blockH+GAP;
+  });
+
+  const dataUrl = canvas.toDataURL('image/png');
+  showOverlay(dataUrl);
+}
+
+function showOverlay(dataUrl) {
+  const ov = document.createElement('div'); ov.className = 'overlay'; ov.id = 'result-overlay';
+  const msg = document.createElement('p'); msg.textContent = '画像を長押しして保存してください';
+  const img = document.createElement('img'); img.src = dataUrl; img.alt = '書き出し画像';
+  const btn = document.createElement('button'); btn.className = 'close-btn'; btn.textContent = '閉じる';
+  btn.addEventListener('click', () => ov.remove());
+  ov.appendChild(msg); ov.appendChild(img); ov.appendChild(btn);
+  document.body.appendChild(ov);
+}
+
+render();
+</script>
+</body>
+</html>
